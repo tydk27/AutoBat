@@ -1,4 +1,3 @@
-#include "stdafx.h"
 #include "MakeWindow.h"
 
 MakeWindow::MakeWindow()
@@ -13,7 +12,7 @@ MakeWindow::~MakeWindow()
 void MakeWindow::MakeListView(HWND hAppWnd, HINSTANCE hInst, HWND *hList)
 {
 	*hList = CreateWindowEx(
-		WS_EX_ACCEPTFILES,
+		0,
 		WC_LISTVIEW,
 		nullptr,
 		WS_CHILD | WS_VISIBLE | LVS_REPORT,

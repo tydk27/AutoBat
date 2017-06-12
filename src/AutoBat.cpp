@@ -1,4 +1,3 @@
-#include "stdafx.h"
 #include "AutoBat.h"
 
 int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
@@ -36,10 +35,8 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 {
 	hInst = hInstance;
 
-	WNDCLASSEXW wcex;
-
+	WNDCLASSEXW wcex = { 0 };
 	wcex.cbSize = sizeof(WNDCLASSEX);
-
 	wcex.style = CS_HREDRAW | CS_VREDRAW;
 	wcex.lpfnWndProc = WndProc;
 	wcex.cbClsExtra = 0;
@@ -73,13 +70,13 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 	mw.MakeListView(hWnd, hInst, &hList);
 	mw.MakeStatusBar(hWnd, hInst, &hStatus);
 
-	if (!hList)
+	if (!hList || !hStatus)
 	{
 		return FALSE;
 	}
 
 	ShowWindow(hWnd, nCmdShow);
-	//UpdateWindow(hWnd);
+	UpdateWindow(hWnd);
 
 	return TRUE;
 }
@@ -89,28 +86,102 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 	switch (message)
 	{
 	case WM_COMMAND:
-	{
-		int wmId = LOWORD(wParam);
-		switch (wmId)
 		{
-		case IDM_ABOUT:
-			DialogBox(hInst, MAKEINTRESOURCE(IDD_ABOUTBOX), hWnd, About);
-			break;
-		case IDM_EXIT:
-			DestroyWindow(hWnd);
-			break;
-		default:
-			return DefWindowProc(hWnd, message, wParam, lParam);
+			int wmId = LOWORD(wParam);
+			switch (wmId)
+			{
+			case IDM_ABOUT:
+				DialogBox(hInst, MAKEINTRESOURCE(IDD_ABOUTBOX), hWnd, About);
+				break;
+			case IDM_EXIT:
+				DestroyWindow(hWnd);
+				break;
+			default:
+				return DefWindowProc(hWnd, message, wParam, lParam);
+			}
 		}
-	}
-	break;
-
+		break;
+	case WM_CREATE:
+		DragAcceptFiles(hWnd, TRUE);
+		break;
 	case WM_SIZE:
 		MoveWindow(hList, 0, 0, LOWORD(lParam), HIWORD(lParam), TRUE);
 		SendMessage(hStatus, WM_SIZE, wParam, lParam);
-
 		break;
+	case WM_DROPFILES:
+		{
+			HDROP hDrop = (HDROP)wParam;
+			TCHAR szFileName[512] = { 0 };
+	
+			UINT uFileNo = DragQueryFile(hDrop, 0xFFFFFFFF, nullptr, 0);
+			for (int i = 0; i < (int)uFileNo; i++) {
+				DragQueryFile(hDrop, i, szFileName, sizeof(szFileName));
+	
+				HANDLE hFile = CreateFile(
+					szFileName,
+					GENERIC_READ,
+					FILE_SHARE_READ,
+					nullptr,
+					OPEN_EXISTING,
+					FILE_ATTRIBUTE_NORMAL,
+					nullptr);
+	
+				if (hFile == INVALID_HANDLE_VALUE) {
+					continue;
+				}
+	
+				TCHAR szFileSize[512] = { 0 };
+				wsprintf(szFileSize, L"%d", GetFileSize(hFile, nullptr));
+	
+				FILETIME lpCreationTime = { 0 };
+				FILETIME lpLastWriteTime = { 0 };
+				GetFileTime(hFile, &lpCreationTime, nullptr, &lpLastWriteTime);
 
+				SYSTEMTIME stFileTime = { 0 };
+
+				FileTimeToSystemTime(&lpCreationTime, &stFileTime);
+				TCHAR szCreationTime[512] = { 0 };
+				wsprintf(szCreationTime, L"%d/%02d/%02d %02d:%02d:%02d",
+					stFileTime.wYear, stFileTime.wMonth, stFileTime.wDay,
+					stFileTime.wHour, stFileTime.wMinute, stFileTime.wSecond
+				);
+	
+				FileTimeToSystemTime(&lpLastWriteTime, &stFileTime);
+				TCHAR szLastWriteTime[512] = { 0 };
+				wsprintf(szLastWriteTime, L"%d/%02d/%02d %02d:%02d:%02d",
+					stFileTime.wYear, stFileTime.wMonth,
+					stFileTime.wDay, stFileTime.wHour,
+					stFileTime.wMinute, stFileTime.wSecond
+				);
+	
+				CloseHandle(hFile);
+	
+				LVITEM item = { 0 };
+	
+				item.mask = LVIF_TEXT;
+				item.pszText = szFileName;
+				item.iItem = i;
+				item.iSubItem = 0;
+				ListView_InsertItem(hList, &item);
+	
+				item.pszText = szFileSize;
+				item.iItem = i;
+				item.iSubItem = 1;
+				ListView_SetItem(hList, &item);
+	
+				item.pszText = szCreationTime;
+				item.iItem = i;
+				item.iSubItem = 2;
+				ListView_SetItem(hList, &item);
+	
+				item.pszText = szLastWriteTime;
+				item.iItem = i;
+				item.iSubItem = 3;
+				ListView_SetItem(hList, &item);
+			}
+			DragFinish(hDrop);
+		}
+		break;
 	case WM_DESTROY:
 		PostQuitMessage(0);
 		break;
