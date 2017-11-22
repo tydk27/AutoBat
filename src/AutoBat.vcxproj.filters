@@ -24,7 +24,7 @@
     <ClInclude Include="AutoBat.h">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
-    <ClInclude Include="MakeWindow.h">
+    <ClInclude Include="targetver.h">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
   </ItemGroup>
@@ -33,9 +33,6 @@
       <Filter>ソース ファイル</Filter>
     </ClCompile>
     <ClCompile Include="AutoBat.cpp">
-      <Filter>ソース ファイル</Filter>
-    </ClCompile>
-    <ClCompile Include="MakeWindow.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>
   </ItemGroup>

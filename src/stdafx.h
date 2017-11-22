@@ -1,6 +1,6 @@
 #pragma once
 
-#include <SDKDDKVer.h>
+#include "targetver.h"
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -9,6 +9,8 @@
 #include <malloc.h>
 #include <memory.h>
 #include <tchar.h>
+#include <string.h>
+#include <iostream>
 
 #include <commctrl.h>
 #pragma comment(lib, "comctl32.lib")

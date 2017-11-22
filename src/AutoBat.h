@@ -1,18 +1,26 @@
 #pragma once
-#include "stdafx.h"
 
 #include "Resource.h"
-#include "MakeWindow.h"
 
-#define MAX_LOADSTRING 100
+#define MAX_LOADSTRING 128
 
-HINSTANCE hInst;
+#define ID_LISTVIEW 101
+#define ID_STATUSBAR 102
+#define ID_LOGVIEW 103
+
+#define WM_ENDTHREAD (WM_APP + 1)
+
 WCHAR szTitle[MAX_LOADSTRING];
 WCHAR szWindowClass[MAX_LOADSTRING];
 
-HWND hList;
-HWND hStatus;
+HINSTANCE hInst;
 
-BOOL                InitInstance(HINSTANCE, int);
-LRESULT CALLBACK    WndProc(HWND, UINT, WPARAM, LPARAM);
-INT_PTR CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
+HWND hList, hStatus, hLog;
+
+HANDLE hThread;
+
+BOOL                InitInstance(HINSTANCE, INT);
+LRESULT CALLBACK    WindowProc(HWND, UINT, WPARAM, LPARAM);
+INT_PTR CALLBACK    DialogProc(HWND, UINT, WPARAM, LPARAM);
+
+DWORD WINAPI		RunProcess(LPVOID);
