@@ -4,6 +4,7 @@
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#pragma comment(lib, "User32.lib")
 
 #include <stdlib.h>
 #include <malloc.h>
