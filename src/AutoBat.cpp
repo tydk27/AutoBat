@@ -63,79 +63,114 @@ BOOL InitInstance(HINSTANCE hInstance, INT nCmdShow)
 	return TRUE;
 }
 
-LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
-	static HMENU hmenu;
+	static HMENU hMenu;
 	static MENUITEMINFO menuInfo;
 
-	DWORD lpThreadId;
-
-	RECT rect;
+	static HANDLE hMainThread;
 
 	switch (uMsg)
 	{
 	case WM_ENDTHREAD:
-		if (CloseHandle(hThread)) hThread = NULL;
+		// 実行クリック時に生成するスレッドの終了時に呼ばれる
+		if (CloseHandle(hMainThread)) hMainThread = NULL;
 		break;
 	case WM_COMMAND:
 	{
 		switch (LOWORD(wParam))
 		{
 		case IDM_SHUTDOWN:
+			// シャットダウンのチェックボックス処理
 			menuInfo.fMask = MIIM_STATE;
 			menuInfo.fState = (menuInfo.fState == MFS_CHECKED) ? MFS_UNCHECKED : MFS_CHECKED;
-			SetMenuItemInfo(hmenu, IDM_SHUTDOWN, FALSE, &menuInfo);
+			SetMenuItemInfo(hMenu, IDM_SHUTDOWN, FALSE, &menuInfo);
 			break;
 		case IDM_EXECUTE:
-			hThread = CreateThread(NULL, 0, RunProcess, hwnd, 0, &lpThreadId);
-			break;
+		{
+			// 実行
+			DWORD lpThreadId = 0;
+			hMainThread = CreateThread(NULL, 0, RunProcess, hWnd, 0, &lpThreadId);
+		}
+		break;
+		case IDM_SELECTFILE:
+		{
+			OPENFILENAME ofn;
+			ZeroMemory(&ofn, sizeof(ofn));
+
+			ofn.lStructSize = sizeof(OPENFILENAME);
+			ofn.hwndOwner = hWnd;
+			ofn.lpstrFilter = "(*.bat)\0*.bat\0All Files(*.*)\0*.*\0\0";
+			ofn.lpstrFile = filePath;
+			ofn.nMaxFile = MAX_FILEPATH;
+			ofn.Flags = OFN_FILEMUSTEXIST;
+			ofn.lpstrDefExt = "bat";
+			ofn.nMaxFileTitle = MAX_FILEPATH;
+			ofn.lpstrFileTitle = fileName;
+
+			GetOpenFileName(&ofn);
+
+			DWORD len = lstrlen(filePath);
+			if (len > 0)
+			{
+				SetWindowText(hInput, filePath);
+				// ToDo: ステータスバーの描写がおかしくなる（消える）
+			}
+		}
+		break;
 		case IDM_ABOUT:
-			DialogBox(hInst, MAKEINTRESOURCE(IDD_VERSION), hwnd, DialogProc);
+			// バージョン情報
+			DialogBox(hInst, MAKEINTRESOURCE(IDD_VERSION), hWnd, DialogProc);
 			break;
 		case IDM_EXIT:
-			DestroyWindow(hwnd);
+			DestroyWindow(hWnd);
 			break;
 		default:
-			return DefWindowProc(hwnd, uMsg, wParam, lParam);
+			return DefWindowProc(hWnd, uMsg, wParam, lParam);
 		}
 	}
 	break;
 	case WM_CREATE:
 	{
-		//スクリーンの幅、高さ、座標
+		// ウインドウを画面の中心に表示
 		DWORD w, h, x, y;
-		RECT rc;
+		RECT windowRect = { 0 };;
 
 		w = GetSystemMetrics(SM_CXSCREEN);
 		h = GetSystemMetrics(SM_CYSCREEN);
 
-		GetWindowRect(hwnd, &rc);
-		x = (w - (rc.right - rc.left)) / 2;
-		y = (h - (rc.bottom - rc.top)) / 2;
+		GetWindowRect(hWnd, &windowRect);
+		x = (w - (windowRect.right - windowRect.left)) / 2;
+		y = (h - (windowRect.bottom - windowRect.top)) / 2;
 
-		MoveWindow(hwnd, x, y, (rc.right - rc.left), (rc.bottom - rc.top), TRUE);
+		MoveWindow(hWnd, x, y, (windowRect.right - windowRect.left), (windowRect.bottom - windowRect.top), TRUE);
 
 
 
-		DragAcceptFiles(hwnd, TRUE);
+		// ドラッグを可能にする
+		DragAcceptFiles(hWnd, TRUE);
 
-		hmenu = GetMenu(hwnd);
+		hMenu = GetMenu(hWnd);
 		menuInfo.cbSize = sizeof(MENUITEMINFO);
 		menuInfo.fState = MFS_UNCHECKED;
 
 
 
-		GetClientRect(hwnd, &rect);
+		// クライアント領域のサイズ取得
+		// 後続で作成するウインドウの位置調整用
+		RECT clientRect = { 0 };;
+		GetClientRect(hWnd, &clientRect);
 
 
 
+		// LISTVIEWウインドウ作成
 		hList = CreateWindowEx(
 			0,
 			WC_LISTVIEW,
 			NULL,
 			WS_CHILD | WS_VISIBLE | LVS_REPORT,
-			0, 0, 0, rect.bottom / 2,
-			hwnd,
+			0, 0, 0, clientRect.bottom / 2,
+			hWnd,
 			(HMENU)ID_LISTVIEW,
 			hInst,
 			NULL);
@@ -172,14 +207,15 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
 
 
+		// EXE出力表示用のEDITウインドウ作成
 		hLog = CreateWindowEx(
 			0,
 			WC_EDIT,
 			NULL,
-			WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY,
-			0, rect.bottom / 2, 0, rect.bottom / 2,
-			hwnd,
-			(HMENU)ID_LOGVIEW,
+			WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_LEFT | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY,
+			0, clientRect.bottom / 2, 0, (clientRect.bottom / 2) - INPUT_HEIGHT,
+			hWnd,
+			(HMENU)ID_LOG,
 			hInst,
 			NULL);
 
@@ -187,13 +223,34 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
 
 
+		// バッチファイル入力用のEDITウインドウ作成
+		hInput = CreateWindowEx(
+			0,
+			WC_EDIT,
+			NULL,
+			WS_CHILD | WS_VISIBLE | ES_LEFT | ES_WANTRETURN,
+			0, clientRect.bottom - INPUT_HEIGHT, 0, INPUT_HEIGHT,
+			hWnd,
+			(HMENU)ID_INPUT,
+			hInst,
+			NULL);
+
+		if (!hInput) break;
+
+		SendMessage(hInput, EM_SETLIMITTEXT, (WPARAM)INPUT_LIMIT, 0);
+
+		// サブクラスでファイル選択ダイアログを出すか
+		// defEditWndProc = (WNDPROC)SetWindowLongPtr(hInput, GWLP_WNDPROC, (LONG_PTR)EditWindowProc);
+
+
+		// ステータスバー作成
 		hStatus = CreateWindowEx(
 			0,
 			STATUSCLASSNAME,
 			NULL,
 			WS_CHILD | SBARS_SIZEGRIP | CCS_BOTTOM | WS_VISIBLE,
 			0, 0, 0, 0,
-			hwnd,
+			hWnd,
 			(HMENU)ID_STATUSBAR,
 			hInst,
 			NULL);
@@ -201,35 +258,39 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 		if (!hStatus) break;
 
 		SendMessage(hStatus, SB_SIMPLE, TRUE, 0L);
-
-
-
 	}
 	break;
 	case WM_SIZE:
-		GetClientRect(hwnd, &rect);
+	{
+		// ウインドウサイズ変更時の調整
+		RECT rect = { 0 };
+		GetClientRect(hWnd, &rect);
 
 		MoveWindow(hList, 0, 0, LOWORD(lParam), rect.bottom / 2, TRUE);
-		MoveWindow(hLog, 0, rect.bottom / 2, LOWORD(lParam), rect.bottom / 2, TRUE);
+		MoveWindow(hLog, 0, rect.bottom / 2, LOWORD(lParam), (rect.bottom / 2) - INPUT_HEIGHT, TRUE);
+		MoveWindow(hInput, 0, rect.bottom - INPUT_HEIGHT, LOWORD(lParam), INPUT_HEIGHT, TRUE);
 
 		SendMessage(hStatus, WM_SIZE, wParam, lParam);
-		break;
+	}
+	break;
 	case WM_CTLCOLOREDIT:
 	{
+		// バグるのでコメントアウト
 		/*
 		DWORD CtrlEsitoID = GetDlgCtrlID((HWND)lParam);
 		if (CtrlEsitoID == ID_LOGVIEW) {
-			HBRUSH hBrushCtrlBG = CreateSolidBrush(RGB(0, 0, 0));
-			HDC hdcEdit = (HDC)wParam;
-			SetTextColor(hdcEdit, RGB(255, 255, 255));	// 文字色：白
-			SetBkMode(hdcEdit, TRANSPARENT);	// 背景色：黒
-			return (LONG)hBrushCtrlBG;
+		HBRUSH hBrushCtrlBG = CreateSolidBrush(RGB(0, 0, 0));
+		HDC hdcEdit = (HDC)wParam;
+		SetTextColor(hdcEdit, RGB(255, 255, 255));	// 文字色：白
+		SetBkMode(hdcEdit, TRANSPARENT);	// 背景色：黒
+		return (LONG)hBrushCtrlBG;
 		}
 		*/
 	}
 	break;
 	case WM_DROPFILES:
 	{
+		// ファイルがドロップされたら、名前とかサイズを取得してリストビューのカラムに表示
 		HDROP hDrop = (HDROP)wParam;
 		TCHAR szFileName[512] = {};
 
@@ -304,10 +365,28 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 		PostQuitMessage(0);
 		break;
 	default:
-		return DefWindowProc(hwnd, uMsg, wParam, lParam);
+		return DefWindowProc(hWnd, uMsg, wParam, lParam);
 	}
 	return 0;
 }
+
+/*
+LRESULT CALLBACK EditWindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+	if (uMsg == WM_KEYDOWN && wParam == VK_RETURN) {
+		DWORD textLen = GetWindowTextLength(hWnd);
+		LPTSTR lpString = (LPTSTR)malloc(textLen + 32);
+		GetWindowText(hWnd, lpString, textLen + 32);
+
+		MessageBox(NULL, lpString, _T("ファイル名"), MB_OK);
+
+		free(lpString);
+
+		return 0;
+	}
+	return CallWindowProc(defEditWndProc, hWnd, uMsg, wParam, lParam);
+}
+*/
 
 INT_PTR CALLBACK DialogProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
@@ -330,29 +409,22 @@ INT_PTR CALLBACK DialogProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lPara
 
 DWORD WINAPI RunProcess(LPVOID lParam)
 {
-	UNREFERENCED_PARAMETER(lParam);
+	// UNREFERENCED_PARAMETER(lParam);
 
 	HANDLE hOutputReadTmp, hOutputRead, hOutputWrite;
 	HANDLE hErrorWrite;
 
-	HANDLE hProcess;
+	HANDLE hChildProcess = NULL;
 
-	SECURITY_ATTRIBUTES sa;
-	STARTUPINFO si;
-	PROCESS_INFORMATION pi;
-
-	ZeroMemory(&sa, sizeof(sa));
+	SECURITY_ATTRIBUTES sa = { 0 };
 	sa.nLength = sizeof(SECURITY_ATTRIBUTES);
 	sa.lpSecurityDescriptor = NULL;
 	sa.bInheritHandle = TRUE;	// パイプにハンドルを引き継ぐ
 
+	// 子の出力パイプ作成
 	if (!CreatePipe(&hOutputReadTmp, &hOutputWrite, &sa, 0))
 	{
-		if (CloseHandle(hOutputReadTmp)) hOutputReadTmp = NULL;
-		if (CloseHandle(hOutputWrite)) hOutputWrite = NULL;
-
 		SendMessage((HWND)lParam, WM_ENDTHREAD, 0, 0);
-
 		return FALSE;
 	}
 
@@ -361,148 +433,119 @@ DWORD WINAPI RunProcess(LPVOID lParam)
 		hOutputWrite,
 		GetCurrentProcess(),
 		&hErrorWrite,
-		0, TRUE, DUPLICATE_SAME_ACCESS))
+		0,
+		TRUE,
+		DUPLICATE_SAME_ACCESS))
 	{
-		if (CloseHandle(hOutputReadTmp)) hOutputReadTmp = NULL;
-		if (CloseHandle(hOutputWrite)) hOutputWrite = NULL;
-		if (CloseHandle(hErrorWrite)) hErrorWrite = NULL;
-
 		SendMessage((HWND)lParam, WM_ENDTHREAD, 0, 0);
-
 		return FALSE;
 	}
 
+	// 出力読み取り用のハンドルを新規作成
 	if (!DuplicateHandle(
 		GetCurrentProcess(),
 		hOutputReadTmp,
 		GetCurrentProcess(),
 		&hOutputRead,
 		0,
-		FALSE, // Make it uninheritable.
+		FALSE,
 		DUPLICATE_SAME_ACCESS))
 	{
-		if (CloseHandle(hOutputReadTmp)) hOutputReadTmp = NULL;
-		if (CloseHandle(hOutputRead)) hOutputRead = NULL;
-		if (CloseHandle(hOutputWrite)) hOutputWrite = NULL;
-		if (CloseHandle(hErrorWrite)) hErrorWrite = NULL;
-
 		SendMessage((HWND)lParam, WM_ENDTHREAD, 0, 0);
-
 		return FALSE;
 	}
 
 	if (CloseHandle(hOutputReadTmp)) hOutputReadTmp = NULL;
 
-	ZeroMemory(&si, sizeof(si));
+
+
+	// プロセス作成
+	STARTUPINFO si = { 0 };
 	si.cb = sizeof(STARTUPINFO);
 	si.dwFlags = STARTF_USESHOWWINDOW | STARTF_USESTDHANDLES;
 	si.wShowWindow = SW_HIDE;
+	// si.dwFlags = STARTF_USESTDHANDLES;
 	si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
 	si.hStdOutput = hOutputWrite;
 	si.hStdError = hErrorWrite;
 
-	ZeroMemory(&pi, sizeof(pi));
+	PROCESS_INFORMATION pi = { 0 };
 
-	TCHAR cmd[] = _T("E:\\Encode\\l-smash_r1450\\remuxer.exe -i F:\\test2.mp4?1:remove -o F:\\demuxed\\test2.m4a");
-	// TCHAR cmd[] = _T("E:\\App\\batch.bat");
+	TCHAR cmd[] = _T("E:\\App\\batch2.bat"); // test
 	if (!CreateProcess(NULL, cmd, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi))
 	{
-		if (CloseHandle(hOutputRead)) hOutputRead = NULL;
-		if (CloseHandle(hOutputWrite)) hOutputWrite = NULL;
-		if (CloseHandle(hErrorWrite)) hErrorWrite = NULL;
-
 		SendMessage((HWND)lParam, WM_ENDTHREAD, 0, 0);
-
 		return FALSE;
 	}
 
-	hProcess = pi.hProcess;
+	hChildProcess = pi.hProcess;
 
 	if (CloseHandle(pi.hThread)) pi.hThread = NULL;
 
+
+
+	// 不要なハンドルをクローズ
 	if (CloseHandle(hOutputWrite)) hOutputWrite = NULL;
 	if (CloseHandle(hErrorWrite)) hErrorWrite = NULL;
 
-	DWORD dwResult = 0;
-	TCHAR tmp[1024] = { 0 };
-	TCHAR buf[1024] = { 0 };
 
-	DWORD len = 0;
+
+	// 子の出力を親のウインドウに出力する
+	TCHAR pipeBuf[MAX_PIPE_BUFFER] = { 0 };
+	DWORD pipeLen = 0;
 
 	while (1)
 	{
-		if (!PeekNamedPipe(hOutputRead, NULL, 0, NULL, &dwResult, NULL)) break;
+		DWORD nBytesRead = 0;
 
-		if (dwResult)
+		if (!PeekNamedPipe(hOutputRead, NULL, 0, NULL, &nBytesRead, NULL)) break;
+
+		if (nBytesRead)
 		{
-			BOOL bSuccess = ReadFile(hOutputRead, tmp, 1, &dwResult, NULL);
-			if (!bSuccess || dwResult == 0) break;
+			TCHAR tmpBuf[MAX_PIPE_BUFFER] = { 0 };
+			DWORD lpNumberOfBytesRead = 0;
+
+			// 1バイトずつ読んでみる
+			BOOL bSuccess = ReadFile(hOutputRead, tmpBuf, 1, &lpNumberOfBytesRead, NULL);
+			if (!bSuccess || lpNumberOfBytesRead == 0)
+			{
+				break;
+			}
 
 			// 読み込んだバッファが改行コードなら
-			if (tmp[dwResult - 1] == '\r' || tmp[dwResult - 1] == '\n')
+			// 貯めたバッファをリストビューに出力する
+			if (tmpBuf[0] == '\r' || tmpBuf[0] == '\n')
 			{
+				// if (pipeLen == 0) continue;
+
+				pipeBuf[pipeLen] = '\0';
+				// strcat_s(pipeBuf, sizeof(tmpBuf), tmpBuf);
+
+				DWORD textLen = GetWindowTextLength(hLog);
 
 				/*
-				// 空白削除
-				int i = len;
-				int count = 0;
-				while (--i >= 0 && buf[i] == ' ') count++;
-				i = 0;
-				while (buf[i] != '\0' && buf[i] == ' ') i++;
-
-				if ((i > 0 && count == 0) || (i > 0 && count > 0))
-				{
-					len = 0;
-					ZeroMemory(&buf, sizeof(buf));
-					continue;
-				}
+				LPTSTR lpString = (LPTSTR)malloc(textLen + 32);
+				GetWindowText(hLog, lpString, textLen + 32);
+				free(lpString);
 				*/
 
-				buf[len] = '\0';
-				//strcat_s(buf, sizeof(tmp), tmp);
-
-				DWORD len = SendMessage(hLog, WM_GETTEXTLENGTH, 0, 0);
-				SendMessage(hLog, EM_SETSEL, (WPARAM)len, (LPARAM)len);
-
-				//TCHAR tmpLen[32] = {};
-				//sprintf_s(tmpLen, sizeof(tmpLen), "%d\n", len);
-				//OutputDebugString(tmpLen);
-
-				SendMessage(hLog, EM_REPLACESEL, (WPARAM)false, (LPARAM)buf);
-				SendMessage(hLog, EM_REPLACESEL, (WPARAM)false, (LPARAM)_T("\r\n"));
-
-
-
-				/*
-				// 復帰文字をコンソール同様に表示してみたかった
-				DWORD logLen = GetWindowTextLength(hLog) + 128;
-				LPSTR buf2 = (LPSTR)malloc(logLen);;
-				GetWindowText(hLog, buf2, logLen);
-
-				int i = logLen - 128;
-				CHAR test = {};
-				if (logLen > 128 && tmp[dwResult - 1] == '\r')
+				SendMessage(hLog, EM_SETSEL, (WPARAM)textLen, (LPARAM)textLen);
+				SendMessage(hLog, EM_REPLACESEL, (WPARAM)false, (LPARAM)pipeBuf);
+				if (tmpBuf[0] == '\r')
 				{
-					while (--i >= 0 && buf2[i - 1] != '\r');
-					test = buf2[i - 1];
-				}
-				if (i > 0)
-				{
-					buf2[i] = '\0';
-					GetWindowText(hLog, buf2, i);
+					SendMessage(hLog, EM_REPLACESEL, (WPARAM)false, (LPARAM)"\r\n");
 				}
 
-				free(buf2);
-				*/
-
-				len = 0;
-				ZeroMemory(&buf, sizeof(buf));
+				ZeroMemory(&pipeBuf, sizeof(pipeBuf));
+				pipeLen = 0;
 			}
 			else
 			{
-				len += dwResult;
-				strcat_s(buf, sizeof(tmp), tmp);
-				ZeroMemory(&tmp, sizeof(tmp));
+				// 改行コードがくるまでバッファに貯める
+				pipeLen += lpNumberOfBytesRead;
+				strcat_s(pipeBuf, sizeof(tmpBuf), tmpBuf);
+
+				ZeroMemory(&tmpBuf, sizeof(tmpBuf));
 			}
 		}
 	}

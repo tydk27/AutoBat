@@ -13,6 +13,7 @@
 #define IDR_MAINFRAME                   128
 #define IDM_SHUTDOWN                    32773
 #define IDM_EXECUTE                     32774
+#define IDM_SELECTFILE					32776
 #define IDC_STATIC                      -1
 
 // Next default values for new objects
