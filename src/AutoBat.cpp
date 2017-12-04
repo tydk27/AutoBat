@@ -28,7 +28,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 
 BOOL InitInstance(HINSTANCE hInstance, INT nCmdShow)
 {
-	WNDCLASSEX wcex = {};
+	WNDCLASSEX wcex = { 0 };
 	wcex.cbSize = sizeof(WNDCLASSEX);
 	wcex.style = CS_HREDRAW | CS_VREDRAW;
 	wcex.lpfnWndProc = WindowProc;
@@ -65,10 +65,10 @@ BOOL InitInstance(HINSTANCE hInstance, INT nCmdShow)
 
 LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
-	static HMENU hMenu;
-	static MENUITEMINFO menuInfo;
+	static HMENU hMenu = NULL;
+	static MENUITEMINFO menuInfo = { 0 };
 
-	static HANDLE hMainThread;
+	static HANDLE hMainThread = NULL;
 
 	switch (uMsg)
 	{
@@ -133,8 +133,8 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 	case WM_CREATE:
 	{
 		// ウインドウを画面の中心に表示
-		DWORD w, h, x, y;
-		RECT windowRect = { 0 };;
+		DWORD w, h, x, y = 0;
+		RECT windowRect = { 0 };
 
 		w = GetSystemMetrics(SM_CXSCREEN);
 		h = GetSystemMetrics(SM_CYSCREEN);
@@ -292,7 +292,7 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 	{
 		// ファイルがドロップされたら、名前とかサイズを取得してリストビューのカラムに表示
 		HDROP hDrop = (HDROP)wParam;
-		TCHAR szFileName[512] = {};
+		TCHAR szFileName[512] = { 0 };
 
 		UINT uFileNo = DragQueryFile(hDrop, 0xFFFFFFFF, NULL, 0);
 		for (INT i = 0; i < (INT)uFileNo; i++) {
@@ -312,21 +312,21 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 			TCHAR szFileSize[512] = { 0 };
 			wsprintf(szFileSize, _T("%d"), GetFileSize(hFile, NULL));
 
-			FILETIME lpCreationTime = {};
-			FILETIME lpLastWriteTime = {};
+			FILETIME lpCreationTime = { 0 };
+			FILETIME lpLastWriteTime = { 0 };
 			GetFileTime(hFile, &lpCreationTime, NULL, &lpLastWriteTime);
 
-			SYSTEMTIME stFileTime = {};
+			SYSTEMTIME stFileTime = { 0 };
 
 			FileTimeToSystemTime(&lpCreationTime, &stFileTime);
-			TCHAR szCreationTime[512] = {};
+			TCHAR szCreationTime[512] = { 0 };
 			wsprintf(szCreationTime, _T("%d/%02d/%02d %02d:%02d:%02d"),
 				stFileTime.wYear, stFileTime.wMonth, stFileTime.wDay,
 				stFileTime.wHour, stFileTime.wMinute, stFileTime.wSecond
 			);
 
 			FileTimeToSystemTime(&lpLastWriteTime, &stFileTime);
-			TCHAR szLastWriteTime[512] = {};
+			TCHAR szLastWriteTime[512] = { 0 };
 			wsprintf(szLastWriteTime, _T("%d/%02d/%02d %02d:%02d:%02d"),
 				stFileTime.wYear, stFileTime.wMonth,
 				stFileTime.wDay, stFileTime.wHour,
@@ -335,7 +335,7 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
 			CloseHandle(hFile);
 
-			LVITEM item = {};
+			LVITEM item = { 0 };
 
 			item.mask = LVIF_TEXT;
 			item.pszText = szFileName;
@@ -411,8 +411,8 @@ DWORD WINAPI RunProcess(LPVOID lParam)
 {
 	// UNREFERENCED_PARAMETER(lParam);
 
-	HANDLE hOutputReadTmp, hOutputRead, hOutputWrite;
-	HANDLE hErrorWrite;
+	HANDLE hOutputReadTmp, hOutputRead, hOutputWrite = NULL;
+	HANDLE hErrorWrite = NULL;
 
 	HANDLE hChildProcess = NULL;
 
@@ -494,46 +494,87 @@ DWORD WINAPI RunProcess(LPVOID lParam)
 	TCHAR pipeBuf[MAX_PIPE_BUFFER] = { 0 };
 	DWORD pipeLen = 0;
 
+	DWORD preLen = 0;
+	BOOL isCR = FALSE;
+
 	while (1)
 	{
 		DWORD nBytesRead = 0;
 
-		if (!PeekNamedPipe(hOutputRead, NULL, 0, NULL, &nBytesRead, NULL)) break;
+		if (!PeekNamedPipe(hOutputRead, NULL, 0, NULL, &nBytesRead, NULL))
+		{
+			break;
+		}
 
 		if (nBytesRead)
 		{
-			TCHAR tmpBuf[MAX_PIPE_BUFFER] = { 0 };
+			TCHAR tmpBuf[MAX_TMP_BUFFER] = { 0 };
 			DWORD lpNumberOfBytesRead = 0;
 
 			// 1バイトずつ読んでみる
-			BOOL bSuccess = ReadFile(hOutputRead, tmpBuf, 1, &lpNumberOfBytesRead, NULL);
+			BOOL bSuccess = ReadFile(hOutputRead, tmpBuf, READ_SIZE, &lpNumberOfBytesRead, NULL);
 			if (!bSuccess || lpNumberOfBytesRead == 0)
 			{
 				break;
 			}
 
-			// 読み込んだバッファが改行コードなら
-			// 貯めたバッファをリストビューに出力する
+			// 改行コードの場合、出力用バッファを吐き出す
 			if (tmpBuf[0] == '\r' || tmpBuf[0] == '\n')
 			{
-				// if (pipeLen == 0) continue;
+				// hLogの長さを取得
+				DWORD textLen = 0;
+				if (isCR || tmpBuf[0] == '\r')
+				{
+					textLen = GetWindowTextLength(hLog);
+				}
 
-				pipeBuf[pipeLen] = '\0';
-				// strcat_s(pipeBuf, sizeof(tmpBuf), tmpBuf);
+				// \r\nだった場合は後処理してスキップさせる
+				if (isCR && tmpBuf[0] == '\n')
+				{
+					// そのまま出力
+					SendMessage(hLog, EM_REPLACESEL, (WPARAM)false, (LPARAM)tmpBuf);
 
-				DWORD textLen = GetWindowTextLength(hLog);
+					ZeroMemory(&pipeBuf, sizeof(pipeBuf));
+					pipeLen = 0;
 
-				/*
-				LPTSTR lpString = (LPTSTR)malloc(textLen + 32);
-				GetWindowText(hLog, lpString, textLen + 32);
-				free(lpString);
-				*/
+					preLen = 0;
+					isCR = FALSE;
 
-				SendMessage(hLog, EM_SETSEL, (WPARAM)textLen, (LPARAM)textLen);
+					continue;
+				}
+
+				// 前回がCRで終わっていたら、前回のEM_SETSEL値以降を終端文字で置換する
+				if (isCR)
+				{
+					// 前回追加前のGetWindowTextLengthの値から以降全てを選択
+					SendMessage(hLog, EM_SETSEL, (WPARAM)preLen, (LPARAM)textLen);
+					// ToDo: 終端文字に書き換え（したほうが速い？）
+					// SendMessage(hLog, EM_REPLACESEL, (WPARAM)false, (LPARAM)"\0");
+
+					if (tmpBuf[0] == '\r')
+					{
+						// CRの場合、今回の処理が終わった後に想定される戻り位置を保存
+						textLen = preLen;
+					}
+				}
+
+				// 改行コードを出力用バッファに追加
+				// TODO: \rだとエディットコントロール内にゴミが乗る
+				sprintf_s(pipeBuf, sizeof(pipeBuf), "%s%s", pipeBuf, tmpBuf);
+
+				// 出力用バッファをhLogに流し込む
 				SendMessage(hLog, EM_REPLACESEL, (WPARAM)false, (LPARAM)pipeBuf);
+
+				// \rの場合、CRの可能性があるので変数にセット
 				if (tmpBuf[0] == '\r')
 				{
-					SendMessage(hLog, EM_REPLACESEL, (WPARAM)false, (LPARAM)"\r\n");
+					preLen = textLen;
+					isCR = TRUE;
+				}
+				else
+				{
+					preLen = 0;
+					isCR = FALSE;
 				}
 
 				ZeroMemory(&pipeBuf, sizeof(pipeBuf));
@@ -541,18 +582,18 @@ DWORD WINAPI RunProcess(LPVOID lParam)
 			}
 			else
 			{
-				// 改行コードがくるまでバッファに貯める
+				// 改行コードが出力用バッファの長さをインクリメントしていく
 				pipeLen += lpNumberOfBytesRead;
-				strcat_s(pipeBuf, sizeof(tmpBuf), tmpBuf);
 
-				ZeroMemory(&tmpBuf, sizeof(tmpBuf));
+				// 出力用バッファに読み込んだバッファをコピー
+				sprintf_s(pipeBuf, sizeof(pipeBuf), "%s%s", pipeBuf, tmpBuf);
 			}
 		}
 	}
 
 	if (CloseHandle(hOutputRead)) hOutputRead = NULL;
 
-	SendMessage((HWND)lParam, WM_ENDTHREAD, 0, 0);
+	SendMessage((HWND)lParam, WM_ENDTHREAD, NULL, NULL);
 
 	return 0;
 }
